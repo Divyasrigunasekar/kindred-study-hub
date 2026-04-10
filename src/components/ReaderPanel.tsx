@@ -1,21 +1,26 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Pause, SkipForward, SkipBack, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Sparkles, Volume2, VolumeX, Loader2 } from 'lucide-react';
 import { useAccessibility } from '@/contexts/AccessibilityContext';
 import { Waveform } from './Waveform';
 import { AgentOverlay } from './AgentOverlay';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface ReaderPanelProps {
   text: string;
+  simplifiedText: string;
+  onSimplified: (text: string) => void;
 }
 
 function splitIntoChunks(text: string): string[] {
-  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+  // Split into sentences, then group into small chunks of 2 sentences
+  const sentences = text.match(/[^.!?\n]+[.!?]+/g) || [text];
   const chunks: string[] = [];
   for (let i = 0; i < sentences.length; i += 2) {
     chunks.push(sentences.slice(i, i + 2).join(' ').trim());
   }
-  return chunks;
+  return chunks.filter(c => c.length > 0);
 }
 
 function bionicWord(word: string): JSX.Element {
@@ -28,12 +33,14 @@ function bionicWord(word: string): JSX.Element {
   );
 }
 
-export const ReaderPanel = ({ text }: ReaderPanelProps) => {
-  const chunks = splitIntoChunks(text);
+export const ReaderPanel = ({ text, simplifiedText, onSimplified }: ReaderPanelProps) => {
+  const activeText = simplifiedText || text;
+  const chunks = splitIntoChunks(activeText);
   const [activeChunk, setActiveChunk] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [agentStage, setAgentStage] = useState(0);
+  const [isSimplifying, setIsSimplifying] = useState(false);
   const { bionicReading, lineSpacing } = useAccessibility();
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
 
@@ -64,14 +71,44 @@ export const ReaderPanel = ({ text }: ReaderPanelProps) => {
   };
 
   const handleSimplify = async () => {
+    if (isSimplifying || simplifiedText) return;
+
+    setIsSimplifying(true);
     setShowOverlay(true);
     setAgentStage(0);
-    await new Promise(r => setTimeout(r, 1500));
-    setAgentStage(1);
-    await new Promise(r => setTimeout(r, 2000));
-    setAgentStage(2);
-    await new Promise(r => setTimeout(r, 1500));
-    setShowOverlay(false);
+
+    try {
+      // Stage 0: The Empath — analyzing
+      await new Promise(r => setTimeout(r, 1200));
+      setAgentStage(1);
+
+      // Stage 1: The Sculptor — call AI
+      const { data, error } = await supabase.functions.invoke('simplify-text', {
+        body: { text },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setAgentStage(2);
+      // Stage 2: The Formatter — formatting
+      await new Promise(r => setTimeout(r, 1000));
+
+      const simplified = data?.simplified || '';
+      if (simplified) {
+        onSimplified(simplified);
+        setActiveChunk(0);
+        toast.success('Text simplified for easier reading!');
+      } else {
+        throw new Error('No simplified text returned');
+      }
+    } catch (err: any) {
+      console.error('Simplify error:', err);
+      toast.error(err.message || 'Failed to simplify text. Please try again.');
+    } finally {
+      setShowOverlay(false);
+      setIsSimplifying(false);
+    }
   };
 
   useEffect(() => {
@@ -90,16 +127,32 @@ export const ReaderPanel = ({ text }: ReaderPanelProps) => {
       <AgentOverlay visible={showOverlay} activeStage={agentStage} />
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="text-sm font-heading font-semibold text-foreground">Reader</h3>
+          <h3 className="text-sm font-heading font-semibold text-foreground">
+            Reader
+            {simplifiedText && (
+              <span className="ml-2 text-xs font-body text-primary">· Simplified</span>
+            )}
+          </h3>
           <div className="flex items-center gap-2">
-            <button onClick={handleSimplify} className="glass-card px-3 py-1.5 flex items-center gap-1.5 hover:bg-primary/10 transition-colors">
-              <Sparkles size={14} className="text-primary" />
-              <span className="text-xs font-body text-foreground">Simplify</span>
+            <button
+              onClick={handleSimplify}
+              disabled={isSimplifying || !!simplifiedText}
+              className="glass-card px-3 py-1.5 flex items-center gap-1.5 hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSimplifying ? (
+                <Loader2 size={14} className="text-primary animate-spin" />
+              ) : (
+                <Sparkles size={14} className="text-primary" />
+              )}
+              <span className="text-xs font-body text-foreground">
+                {simplifiedText ? 'Simplified' : 'Simplify'}
+              </span>
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+        {/* Chunked reader with large margins for dyslexia support */}
+        <div className="flex-1 overflow-y-auto p-8 space-y-6">
           {chunks.map((chunk, i) => (
             <motion.div
               key={i}
@@ -107,7 +160,7 @@ export const ReaderPanel = ({ text }: ReaderPanelProps) => {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.05 }}
               onClick={() => setActiveChunk(i)}
-              className={`p-4 rounded-xl cursor-pointer transition-all font-body text-sm ${
+              className={`px-6 py-5 rounded-xl cursor-pointer transition-all font-body text-[15px] leading-relaxed max-w-2xl mx-auto ${
                 i === activeChunk
                   ? 'glass-card glow-border'
                   : 'hover:bg-secondary/30'
