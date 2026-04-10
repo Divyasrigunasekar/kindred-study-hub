@@ -1,6 +1,12 @@
 import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, FileText, Image, File } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.mjs',
+  import.meta.url
+).toString();
 
 interface UploadZoneProps {
   onFileUploaded: (text: string, fileName: string) => void;
@@ -10,11 +16,25 @@ export const UploadZone = ({ onFileUploaded }: UploadZoneProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [scanning, setScanning] = useState(false);
 
+  const extractPdfText = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      fullText += pageText + '\n';
+    }
+    return fullText.trim();
+  };
+
   const handleFile = useCallback(async (file: File) => {
     const isImage = file.type.startsWith('image/');
     if (isImage) {
       setScanning(true);
-      // Simulate OCR
       await new Promise(r => setTimeout(r, 3000));
       setScanning(false);
       onFileUploaded(
@@ -24,9 +44,34 @@ export const UploadZone = ({ onFileUploaded }: UploadZoneProps) => {
       return;
     }
 
+    if (file.type === 'application/pdf') {
+      setScanning(true);
+      try {
+        const text = await extractPdfText(file);
+        setScanning(false);
+        if (text.length === 0) {
+          // Scanned/image-based PDF — use OCR simulation fallback
+          onFileUploaded(
+            "This PDF appears to be a scanned document. OCR simulation: The Kindred AI platform would use a real OCR engine to extract text from scanned pages. Each sentence is designed to be read in manageable chunks. The system breaks down complex paragraphs into digestible pieces. This helps maintain focus and improves comprehension. Visual formatting is applied automatically based on your preferences.",
+            file.name
+          );
+        } else {
+          onFileUploaded(text, file.name);
+        }
+      } catch (err) {
+        console.error('PDF parsing error:', err);
+        setScanning(false);
+        onFileUploaded(
+          "Could not extract text from this PDF. It may be corrupted or use an unsupported format.",
+          file.name
+        );
+      }
+      return;
+    }
+
     const text = await file.text();
     onFileUploaded(
-      text || "Sample document text loaded successfully. The Kindred AI platform processes your documents and presents them in an accessible format. Each sentence becomes a manageable chunk for easier reading. Complex vocabulary is simplified while preserving meaning. The system adapts to your preferred reading style. Focus mode helps eliminate distractions. Bionic Reading guides your eyes through the text naturally. Every feature is designed with neurodivergent readers in mind.",
+      text || "Sample document text loaded successfully.",
       file.name
     );
   }, [onFileUploaded]);
