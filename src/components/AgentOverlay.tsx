@@ -48,7 +48,7 @@ export const AgentOverlay = ({ visible, activeStage }: AgentOverlayProps) => (
                     <p className="text-sm font-heading font-medium text-foreground">{stage.label}</p>
                     <p className="text-xs font-body text-muted-foreground">{stage.desc}</p>
                   </div>
-                  {isDone && <span className="ml-auto text-xs text-emerald-400">✓</span>}
+                  {isDone && <span className="ml-auto text-xs text-primary">✓</span>}
                 </motion.div>
               );
             })}
