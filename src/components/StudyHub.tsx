@@ -13,10 +13,14 @@ interface StudyHubProps {
 
 export const StudyHub = ({ text, fileName, onBack }: StudyHubProps) => {
   const [showDownloads, setShowDownloads] = useState(false);
+  const [simplifiedText, setSimplifiedText] = useState('');
+
+  // The chat and reader both use the simplified text if available
+  const activeText = simplifiedText || text;
 
   return (
     <>
-      <DownloadCenter visible={showDownloads} onClose={() => setShowDownloads(false)} text={text} />
+      <DownloadCenter visible={showDownloads} onClose={() => setShowDownloads(false)} text={activeText} />
       <motion.div
         initial={{ opacity: 0, x: 40 }}
         animate={{ opacity: 1, x: 0 }}
@@ -45,10 +49,14 @@ export const StudyHub = ({ text, fileName, onBack }: StudyHubProps) => {
 
         <div className="flex-1 flex overflow-hidden">
           <div className="flex-1 border-r border-border overflow-hidden">
-            <ReaderPanel text={text} />
+            <ReaderPanel
+              text={text}
+              simplifiedText={simplifiedText}
+              onSimplified={setSimplifiedText}
+            />
           </div>
           <div className="w-[380px] flex-shrink-0 overflow-hidden">
-            <ChatPanel />
+            <ChatPanel documentContext={activeText} />
           </div>
         </div>
       </motion.div>
